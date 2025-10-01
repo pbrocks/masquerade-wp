@@ -54,7 +54,7 @@ function masq_wp_user_link( $actions, $user_object ) {
 	if ( current_user_can( 'delete_users' ) ) {
 		$current_user = wp_get_current_user();
 		if ( $current_user->ID !== $user_object->ID ) {
-			$actions['masquerade'] = '<a onclick="masq_wp_as_user(' . $user_object->ID . '); return false;" href="#" title="Masquerade As User">Masquerade As User</a>';
+			$actions['masquerade'] = '<a onclick="masq_wp_as_user(' . $user_object->ID . '); return false;" href="#" title="Masquerade As User">View as User</a>';
 		}
 	}
 	return $actions;
@@ -73,15 +73,17 @@ function masq_wp_as_user_js() {
 		?>
 		<script type="text/javascript">
 		function masq_wp_as_user(uid) {
-			var ajax_url = '<?php echo admin_url( 'admin-ajax.php' ); ?>';
+			var ajax_url = '<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>';
 			var data = {
 				action: 'masq_wp_user',
-				wponce: '<?php echo wp_create_nonce( 'masq_wp_once' ); ?>',
+				wponce: '<?php echo esc_html( wp_create_nonce( 'masq_wp_once' ) ); ?>',
 				uid: uid
 			};
 			jQuery.post(ajax_url, data, function(response) {
 				if (response == '1') {
-					window.location = "<?php echo site_url(); ?>";
+					window.location.href = '<?php echo esc_url( home_url() ); ?>';
+				} else {
+					alert('Error logging in as user.');
 				}
 			});
 		}
