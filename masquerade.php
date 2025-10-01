@@ -3,7 +3,7 @@
 Plugin Name: Masquerade
 Plugin URI: http://castle-creative.com/
 Description: Adds a link to users.php that allows an administrator to login as that user without knowing the password.
-Version: 1.01
+Version: 1.0.1
 Author: JR King
 Author URI: http://castle-creative.com/
 License: General Public License version 2
@@ -28,9 +28,9 @@ along with this program.  If not, see http://www.gnu.org/licenses/.
 				add_filter ('user_row_actions', 'masq_user_link', 99, 2);
 			}
 		}
-		
+
 	function masq_user_link( $actions , $user_object ){
-		if( current_user_can( 'delete_users' ) ) {	
+		if( current_user_can( 'delete_users' ) ) {
 			$current_user = wp_get_current_user();
             if ( $current_user->ID != $user_object->ID ) {
 				$actions['masquerade'] = '<a onclick="masq_as_user('.$user_object->ID.'); return false;" href="#" title="Masquerade As User">Masquerade As User</a>';
