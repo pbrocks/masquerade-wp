@@ -1,11 +1,11 @@
 <?php
 /**
  * Plugin Name: Masquerade in WP
- * Plugin URI: http://castle-creative.com/
- * Description: Adds a link to users.php that allows an administrator to login as that user without knowing the password.
- * Version: 1.0.3
- * Author: JR King
- * Author URI: http://castle-creative.com/
+ * Plugin URI: https://github.com/pbrocks/masquerade-wp
+ * Description: Forked from JR King -- Adds a link to users.php that allows an administrator to login as that user without knowing the password.
+ * Version: 1.0.4
+ * Author:  pbrocks
+ * Author URI: https://github.com/pbrocks
  * License: General Public License version 2
  *
  * Copyright 2012 JR King
@@ -54,7 +54,7 @@ function masq_wp_user_link( $actions, $user_object ) {
 	if ( current_user_can( 'delete_users' ) ) {
 		$current_user = wp_get_current_user();
 		if ( $current_user->ID !== $user_object->ID ) {
-			$actions['masquerade'] = '<a onclick="masq_wp_as_user(' . $user_object->ID . '); return false;" href="#" title="Masquerade As User">View as User</a>';
+			$actions['masqueradewp'] = '<a onclick="masq_wp_as_user(' . $user_object->ID . '); return false;" href="#" title="Masquerade As User">View as User</a>';
 		}
 	}
 	return $actions;
@@ -94,6 +94,8 @@ function masq_wp_as_user_js() {
 
 add_action( 'wp_ajax_masq_wp_user', 'ajax_masq_wp_login' );
 /**
+ * Add masquerade functionality with admin bar link using transients.
+ *
  * Handle AJAX request to masquerade as a different user.
  *
  * Validates nonce, checks permissions, and logs in as the selected user.
@@ -102,18 +104,27 @@ add_action( 'wp_ajax_masq_wp_user', 'ajax_masq_wp_login' );
  */
 function ajax_masq_wp_login() {
 	$wponce = $_POST['wponce'] ?? '';
-
 	if ( ! wp_verify_nonce( $wponce, 'masq_wp_once' ) ) {
 		wp_die( 'Security check' );
 	}
 
 	$uid       = isset( $_POST['uid'] ) ? (int) $_POST['uid'] : 0;
 	$user_info = get_userdata( $uid );
-
 	if ( ! $user_info ) {
 		wp_die( 'Invalid user' );
 	}
 
+	// Grab current admin user BEFORE switching.
+	$current_admin = wp_get_current_user();
+
+	// Store the original admin ID, keyed by the masquerade UID.
+	set_transient(
+		'masq_original_user_' . $uid,
+		$current_admin->ID,
+		HOUR_IN_SECONDS
+	);
+
+	// Now actually switch users.
 	$uname = $user_info->user_login;
 
 	if ( current_user_can( 'delete_users' ) ) {
@@ -127,4 +138,86 @@ function ajax_masq_wp_login() {
 			exit();
 		}
 	}
+}
+
+add_action( 'admin_post_masq_return', 'masq_wp_return_to_admin' );
+/**
+ * Return to the original admin user.
+ */
+function masq_wp_return_to_admin() {
+	$current_user = wp_get_current_user();
+
+	// Look up original admin ID stored for this masquerading user.
+	$admin_id = get_transient( 'masq_original_user_' . $current_user->ID );
+	delete_transient( 'masq_original_user_' . $current_user->ID );
+
+	if ( $admin_id ) {
+		$user_info = get_userdata( $admin_id );
+		if ( $user_info ) {
+			wp_set_current_user( $admin_id, $user_info->user_login );
+			wp_set_auth_cookie( $admin_id );
+			do_action( 'wp_login', $user_info->user_login );
+			wp_safe_redirect( admin_url() );
+			exit;
+		}
+	}
+
+	wp_safe_redirect( home_url() );
+	exit;
+}
+add_action( 'admin_bar_menu', 'masq_wp_adminbar_link', 999 );
+/**
+ * Add "Masquerade As" or "Return to Admin User" link in the admin bar.
+ *
+ * @param WP_Admin_Bar $wp_admin_bar The admin bar object.
+ */
+function masq_wp_adminbar_link( $wp_admin_bar ) {
+    $current_user = wp_get_current_user();
+    $admin_id = get_transient( 'masq_original_user_' . $current_user->ID );
+
+    if ( current_user_can( 'delete_users' ) || $admin_id ) {
+        if ( $admin_id ) {
+            $wp_admin_bar->add_node([
+                'parent' => 'my-account',
+                'id'     => 'masquerade_return',
+                'title'  => __( 'Return to Admin User', 'textdomain' ),
+                'href'   => admin_url( 'admin-post.php?action=masq_return' ),
+                'meta'   => ['class' => 'masquerade-return-link'],
+            ]);
+        } else {
+            $wp_admin_bar->add_node([
+                'parent' => 'my-account',
+                'id'     => 'masquerade_as',
+                'title'  => __( 'Masquerade As', 'textdomain' ),
+                'href'   => admin_url( 'users.php' ),
+                'meta'   => ['class' => 'masquerade-as-link'],
+            ]);
+        }
+    }
+}
+add_action( 'admin_notices', 'masq_wp_masquerade_banner' );
+/**
+ * Display an admin notice banner when currently masquerading as another user.
+ *
+ * @return void
+ */
+function masq_wp_masquerade_banner() {
+    $current_user = wp_get_current_user();
+    $admin_id = get_transient( 'masq_original_user_' . $current_user->ID );
+
+    // Show banner if currently masquerading OR current user is admin
+    if ( $admin_id ) {
+        $admin_info = get_userdata( $admin_id );
+        if ( $admin_info ) {
+            $admin_name = esc_html( $admin_info->user_login );
+            $return_url = esc_url( admin_url( 'admin-post.php?action=masq_return' ) );
+
+            echo '<div class="notice notice-warning is-dismissible" style="border-left: 4px solid #ffba00; background-color:#fff3cd;">';
+            echo '<p>';
+            echo '⚠️ You are currently masquerading as <strong>' . esc_html( $current_user->user_login ) . '</strong>. ';
+            echo '<a href="' . $return_url . '">Return to Admin User (' . $admin_name . ')</a>.';
+            echo '</p>';
+            echo '</div>';
+        }
+    }
 }
